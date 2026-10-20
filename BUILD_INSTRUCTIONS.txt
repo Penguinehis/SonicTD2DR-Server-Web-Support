@@ -1,0 +1,322 @@
+================================================================
+  betterserver-oss  |  BUILD INSTRUCTIONS
+================================================================
+
+QUICK START (Docker - no toolchain on your machine, cross-compiles everything)
+----------------------------------------------------------------
+Requires only Docker. Builds every supported target from any host.
+
+  Windows:      build-docker.bat
+  Linux/macOS:  ./build-docker.sh
+
+With no arguments it builds the two most common targets into dist/:
+  betterserver-windows-x64.exe
+  betterserver-linux-arm64
+
+Build everything, or pick targets by name:
+
+  build-docker.bat all
+  build-docker.bat linux-arm64
+  build-docker.bat windows-arm64 linux-arm
+
+  Target          Output                          Notes
+  --------------  ------------------------------  --------------------------
+  windows-x64     betterserver-windows-x64.exe    64-bit Windows
+  windows-x86     betterserver-windows-x86.exe    32-bit Windows
+  windows-arm64   betterserver-windows-arm64.exe  Windows on ARM (Win10+)
+  windows-arm     betterserver-windows-arm.exe    32-bit ARM Windows (legacy)
+  linux-x64       betterserver-linux-x64          64-bit Linux
+  linux-x86       betterserver-linux-x86          32-bit Linux
+  linux-arm64     betterserver-linux-arm64        64-bit ARM (Pi 4/5, servers)
+  linux-arm       betterserver-linux-arm          32-bit ARM (armv7 hard-float)
+
+Every binary is self-contained: the Linux ones are statically linked, and the
+Windows ones import only system DLLs. Copy the single file to the target
+machine and run it - on Linux remember chmod +x.
+
+The Windows x64/x86 builds use mingw-w64 (GCC) and link msvcrt, so they also
+run on older Windows. The Windows ARM builds use llvm-mingw (Clang, since
+mingw-w64 has no ARM target) and link the UCRT, which is part of Windows 10
+and newer - that is not a real limitation because Windows on ARM only exists
+from Windows 10 onward. Note that 32-bit ARM Windows is a dead platform:
+Windows RT is discontinued and Windows 11 on ARM dropped 32-bit ARM app
+support, so windows-arm is provided for completeness rather than use.
+
+Set BUILD_TYPE=Debug to build with debug symbols.
+Set DIST_DIR=somewhere to write the binaries elsewhere, which is handy when a
+running server is holding the files in dist/ open.
+
+QUICK START (Windows)
+----------------------------------------------------------------
+1. Double-click build.bat
+   - It will auto-install MSYS2 if not present (~100 MB, one-time)
+   - It will download ENet if not present
+   - It will compile and place server.exe in the repo root
+2. Double-click server.exe to run
+   - The server starts in CLI/headless mode; SDL is not required
+   - Type `help` to see live administration commands
+   - Config.json is created on first launch with default settings
+   - Edit Config.json and restart to change settings
+
+QUICK START (Linux / macOS)
+----------------------------------------------------------------
+1. Install dependencies:
+   Linux (Debian/Ubuntu):
+     sudo apt install build-essential cmake ninja-build
+   macOS (Homebrew):
+     brew install cmake ninja
+
+2. Clone or place ENet next to the source:
+     git clone https://github.com/lsalzman/enet.git
+
+3. Configure and build:
+     cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release
+     cmake --build build
+
+4. Run:
+     ./build/disasterserver/DisasterServer
+
+----------------------------------------------------------------
+REQUIRED TOOLS
+----------------------------------------------------------------
+
+  Tool       Min Version   Notes
+  ---------  -----------   ------------------------------------
+  C compiler  GCC 9+ or    Clang 10+ also works
+              Clang 10+
+  CMake       3.16.3+       Older versions may lack features used
+  Ninja       1.10+         Make also works; replace -G Ninja with
+                            -G "Unix Makefiles"
+  ENet        master        Fetched automatically by build.bat
+                            or must be cloned to enet/ manually
+
+Optional (only needed for BUILD_UI SDL2 GUI):
+  SDL2        2.0+
+  SDL2_image  2.0+
+
+----------------------------------------------------------------
+DEPENDENCIES
+----------------------------------------------------------------
+
+ENet (required, network library)
+  Source: https://github.com/lsalzman/enet
+  Placement: enet/ directory at the repository root
+  The root CMakeLists.txt expects enet/CMakeLists.txt to exist.
+  build.bat downloads and extracts this automatically.
+
+cJSON (included)
+  Located at disasterserver/cJSON.c + include/cJSON.h
+  No separate installation required.
+
+----------------------------------------------------------------
+CMAKE OPTIONS
+----------------------------------------------------------------
+
+  Option          Default   Effect
+  -----------     -------   -----------------------------------
+  CMAKE_BUILD_TYPE Release  Use Debug for debug symbols
+  DYLIB           OFF       Build as .dll/.so instead of .exe
+  BUILD_UI        OFF       Legacy SDL2 GUI. Leave OFF for the
+                            reliable Admin CLI/dedicated server.
+
+Examples:
+
+  cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release
+
+
+  cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Debug
+
+
+  cmake -S . -B build -G Ninja -DDYLIB=ON
+
+----------------------------------------------------------------
+OUTPUT LOCATION
+----------------------------------------------------------------
+
+After build:
+  build/disasterserver/DisasterServer     (Linux/macOS)
+  build/disasterserver/DisasterServer.exe (Windows)
+
+build.bat copies the result to:
+  server.exe  (in the repository root, next to build.bat)
+
+
+----------------------------------------------------------------
+ADMIN CLI
+----------------------------------------------------------------
+The normal executable now starts the game server workers first and keeps
+administration in the terminal, independent from SDL/UI rendering.
+
+Useful commands:
+  servers                         Show every server instance
+  use <server-id>                 Select an instance
+  status                          Show state/player counts
+  players                         Show player IDs, IPs and UDIDs
+  ban <player-id>                 Ban online player by IP + UDID
+  ban-key <ip-or-udid> [label]    Add an offline ban
+  bans                            Show persisted bans
+  unban <ip-or-udid>              Remove one ban key
+  kick <player-id> [seconds]      Kick with reconnect timeout
+  timeouts / untimeout <key>      Manage temporary timeouts
+  op <player-id> / deop <ip>      Manage operators
+  lobby-blocks                    Show active per-lobby vote-kick blocks
+  lobby-unblock <key|all>         Clear per-lobby blocks for a player
+  reports [key]                   Show player reports (key = full history)
+  reports-clear <key|all>         Dismiss reports for one player, or all
+  say <message>                   Broadcast a message
+  lobby                           Force back to lobby
+  win <exe|surv>                  Force game result
+  quit                            Clean shutdown
+
+Run with --no-cli for service/daemon use. If stdin is not a terminal, the
+CLI disables itself automatically so systemd/Docker-style launches do not
+exit just because stdin is closed. Use --cli to force CLI input.
+
+----------------------------------------------------------------
+PLAYER COMMANDS (typed in chat, prefix is "." not "/")
+----------------------------------------------------------------
+"/" is the blue colour code and gets stripped by the chat parser,
+which is why every command uses a leading dot.
+
+  .help / .commands / .cmds   list the commands you can use
+  .info                       server name, version, lobby number
+  .players / .who             who is online, with their numbers
+  .ping                       your current ping
+  .lobby <n>                  move yourself to another lobby
+  .report <name|id> [reason]  report a cheater to the host
+  .vk <name|id>               start a kick vote on someone
+  .vk                         open the client's picker instead
+  .yes / .y                   vote to kick
+  .no  / .n                   vote to keep
+  .vp                         vote for practice mode
+
+Operators additionally get .map .tm .cm .kick .ban .op
+
+VOTE KICK
+  Works in the lobby AND during a match, so a cheater does not have
+  to be tolerated until the round ends. A vote passes on a majority
+  of eligible players, and fails immediately once enough players
+  have voted .no that a majority is no longer reachable.
+
+  If the player kicked mid-match was the killer, the round cannot be
+  finished, so the server announces it and returns everyone to the
+  lobby to start over.
+
+  A vote-kicked player is blocked from THAT LOBBY ONLY. They are
+  redirected to another lobby on the same server rather than being
+  shut out. The block is written to LobbyTimeouts.json with an expiry
+  timestamp, so restarting the server does not clear it, and it
+  disappears by itself once it runs out. If no other lobby is free,
+  the player is turned away with the remaining time - so on a
+  single-lobby setup a kick does act as a temporary server block.
+
+  Tune it under "moderation" in Config.json:
+
+    votekick_vote_seconds             how long a vote runs   (20)
+    votekick_start_cooldown_seconds   per-player cooldown    (30)
+    votekick_lobby_block_seconds      lobby block length    (600)
+    report_cooldown_seconds           .report cooldown       (60)
+
+  Set votekick_lobby_block_seconds to 0 to kick without any block.
+
+----------------------------------------------------------------
+PLAYER REPORTS
+----------------------------------------------------------------
+Players report each other from chat:
+
+  .report <name-or-id> [reason]
+
+  .report someguy speedhacking through walls
+  .report 4 camping
+
+The name match ignores case and colour codes, and accepts a partial
+name as long as it is unambiguous; otherwise use the player id shown
+by the 'players' admin command. Reporting yourself is refused, and
+each player may file one report per 60 seconds.
+
+Reports are appended to Reports.json, keyed by the target's UDID
+(falling back to IP), keeping up to 50 entries per player. Review
+them from the admin terminal:
+
+  reports                      summary, newest 3 per player
+  reports <udid-or-ip>         full history for one player
+  reports-clear <udid-or-ip>   dismiss that player's reports
+  reports-clear all            wipe the list
+
+Reports are a record for the host only - filing one never kicks,
+bans or notifies anyone automatically.
+
+----------------------------------------------------------------
+CONFIGURATION FILES (created on first launch)
+----------------------------------------------------------------
+
+  File            Purpose
+  -------------   ------------------------------------------
+  Config.json     Main server settings (see below)
+  Bans.json       Banned player records (IP + UDID keys)
+  Timeouts.json   Temporary reconnect timeouts
+  Operators.json  Operator list (IP-keyed)
+  Reports.json      Player reports filed with .report
+  LobbyTimeouts.json Per-lobby vote-kick blocks (survive restarts)
+
+Config.json fields:
+  port           int     Base UDP port (default: 8606)
+                         Each extra server_count adds +1 to port
+  server_count   int     Number of parallel server instances
+  ping_limit     int     Max allowed client ping in ms (default: 250)
+  log_debug      bool    Enable verbose debug logging
+  log_file       bool    Write logs to logs/MMDDYYYY HHMMSS.log
+  map_list       array   20 booleans — enable/disable each map
+  motd           string  Message shown to connecting players.
+                 or list Accepts EITHER a single string or a list of
+                         strings, one chat line each (max 12), e.g.
+                           "message_of_the_day": [
+                             "welcome to the server",
+                             "be nice, no cheating",
+                             "type .help for commands"
+                           ]
+                         A plain string still works unchanged.
+  anticheat      bool    Enable zone-based position validation
+  pride          bool    Enable end-screen messages for campers
+
+Map indices (for map_list):
+  0  Hide and Seek 2     10 Priceless Freedom
+  1  Ravine Mist         11 Volcano Valley
+  2  ...                 12 Hill
+  3  Desert Town         13 Majin Forest
+  4  You Can't Run       14 Hide and Seek
+  5  Limp City           15 Torture Cave
+  6  Not Perfect         16 Dark Tower
+  7  Kind and Fair       17 Haunting Dream
+  8  Act 9               18 Mystic Wood
+  9  Nasty Paradise      19 Echidna Ruins
+                         20 Fart Zone
+
+----------------------------------------------------------------
+TROUBLESHOOTING
+----------------------------------------------------------------
+
+"CMake not found" / "gcc not found"
+  -> Re-run build.bat; it will reinstall MSYS2 build tools.
+  -> Close and reopen the terminal window if tools were just installed.
+
+"enet/CMakeLists.txt not found"
+  -> Run build.bat (it downloads enet automatically)
+  -> OR: git clone https://github.com/lsalzman/enet.git
+
+"DisasterServer.exe not found after build"
+  -> Check the CMake output above for compile errors.
+  -> Ensure you are building from the correct repo root.
+
+Server starts but clients cannot connect
+  -> Check that the configured port is open in your firewall.
+  -> Default port: 8606 (UDP). Each additional server_count
+     uses the next port (8607, 8608, ...).
+
+Server crashes immediately
+  -> Check for Config.json parse errors in console output.
+  -> Delete Config.json to regenerate defaults.
+
+Log output
+  -> Set "log_debug": true in Config.json for verbose output.
+  -> Set "log_file": true to write logs to the logs/ directory.

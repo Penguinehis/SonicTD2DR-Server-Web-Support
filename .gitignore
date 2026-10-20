@@ -1,0 +1,14 @@
+# build output
+build/
+dist/
+*.o
+*.a
+
+# anything a running server writes - never commit these
+Config.json
+Mod.json
+mods/
+*.key
+*.log
+bans.json
+ops.json
